@@ -7,10 +7,10 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Important: This tells the server to serve your index.html file
 app.use(express.static(path.join(__dirname)));
 
 let players = [];
+let finishedCount = 0;
 
 io.on('connection', (socket) => {
     socket.on('joinGame', (username) => {
@@ -21,12 +21,40 @@ io.on('connection', (socket) => {
     });
 
     socket.on('startGame', () => {
-        if (players.length >= 2) { // Set to 2 for testing, change to 5 later
-            const roles = ['Werewolf', 'Seer', 'Villager', 'Gremlin', 'Werewolf'].sort(() => Math.random() - 0.5);
+        if (players.length === 5) {
+            finishedCount = 0;
+            const roles = ['Werewolf', 'Werewolf', 'Seer', 'Villager', 'Gremlin'].sort(() => Math.random() - 0.5);
             players.forEach((p, i) => {
                 p.role = roles[i];
-                io.to(p.id).emit('assignRole', p.role, players.map(pl => pl.name));
+                // Send role AND the list of all players to each person
+                io.to(p.id).emit('assignRole', { 
+                    role: p.role, 
+                    allPlayers: players.map(pl => pl.name) 
+                });
             });
+        }
+    });
+
+    // Seer Logic
+    socket.on('seerAction', (targetIndex) => {
+        const target = players[targetIndex];
+        socket.emit('seerResult', `${target.name} is a ${target.role}`);
+    });
+
+    // Gremlin Logic
+    socket.on('gremlinAction', (indices) => {
+        const [idx1, idx2] = indices;
+        const temp = players[idx1].role;
+        players[idx1].role = players[idx2].role;
+        players[idx2].role = temp;
+        socket.emit('gremlinResult', "Roles swapped successfully!");
+    });
+
+    // Move to Morning
+    socket.on('playerFinished', () => {
+        finishedCount++;
+        if (finishedCount === 5) {
+            io.emit('morningPhase', players.map(p => ({ name: p.name, role: p.role })));
         }
     });
 

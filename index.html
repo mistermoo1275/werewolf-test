@@ -4,115 +4,152 @@
     <title>One Night Werewolf</title>
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: white; text-align: center; padding: 20px; }
+        body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: white; text-align: center; }
         .hidden { display: none; }
-        .btn { background: #e94560; color: white; border: none; padding: 10px 20px; margin: 5px; cursor: pointer; border-radius: 5px; }
+        .btn { background: #e94560; color: white; border: none; padding: 15px; margin: 10px; cursor: pointer; border-radius: 8px; font-weight: bold; }
         .player-btn { background: #16213e; border: 1px solid #e94560; color: white; padding: 10px; margin: 5px; cursor: pointer; }
-        .player-btn:disabled { opacity: 0.5; }
-        #list { margin: 20px; border: 1px solid #444; padding: 10px; }
+        #timer { font-size: 3em; color: #ff4d4d; margin: 10px; }
+        .overlay { background: rgba(0,0,0,0.9); position: fixed; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index: 100; }
     </style>
 </head>
 <body>
     <div id="lobby">
-        <h1>Werewolf Lobby</h1>
-        <input id="nameInput" placeholder="Your Name" style="padding: 10px;">
-        <button class="btn" onclick="join()">Join Game</button>
-        <div id="list">Waiting for players...</div>
-        <button id="startBtn" class="btn hidden" onclick="start()">Start Game (5 Players)</button>
+        <h1>🐺 Werewolf Lobby</h1>
+        <input id="nameInput" placeholder="Enter Name">
+        <button class="btn" onclick="join()">Join</button>
+        <div id="list"></div>
+        <button id="startBtn" class="btn hidden" onclick="socket.emit('startGame')">Start Game</button>
     </div>
 
-    <div id="game" class="hidden">
-        <h2 id="roleReveal"></h2>
-        <div id="actionText"></div>
-        <div id="buttonArea"></div>
-        <br>
-        <button id="doneBtn" class="btn hidden" onclick="finishTurn()" style="background: #0f3460;">I am Done</button>
+    <div id="night-overlay" class="overlay hidden"><h1 id="night-msg">Night Phase...</h1></div>
+
+    <div id="action-screen" class="hidden">
+        <h2 id="my-role-display"></h2>
+        <div id="interaction-area"></div>
+        <button id="done-btn" class="btn hidden" onclick="done()">Finish Action</button>
     </div>
 
-    <div id="morning" class="hidden">
-        <h1>☀️ Morning Phase</h1>
-        <p>Discuss and vote! Here are the final roles:</p>
-        <div id="finalRolesList"></div>
-        <button class="btn" onclick="location.reload()">Play Again</button>
+    <div id="discussion-screen" class="hidden">
+        <h1>🗣️ DISCUSSION TIME</h1>
+        <div id="timer">03:00</div>
+        <p>Talk to each other! Who is lying?</p>
+        <button class="btn" onclick="socket.emit('voteToSkip')">Vote to Skip to Voting (<span id="skip-count">0</span>/5)</button>
+    </div>
+
+    <div id="voting-screen" class="hidden">
+        <h1>🗳️ CAST YOUR VOTE</h1>
+        <div id="v-timer" style="font-size: 2.5em; color: yellow;">20</div>
+        <div id="voting-area"></div>
+    </div>
+
+    <div id="reveal-screen" class="overlay hidden">
+        <h1 id="outcome-banner"></h1>
+        <div id="truth-list"></div>
+        <button class="btn" onclick="location.reload()">Play New Game</button>
     </div>
 
     <script>
         const socket = io();
-        let myRole = "";
-        let selectedForSwap = [];
+        let gameTimer;
 
         function join() {
             const name = document.getElementById('nameInput').value;
             if(name) socket.emit('joinGame', name);
         }
 
-        function start() { socket.emit('startGame'); }
-
         socket.on('playerListUpdate', (names) => {
             document.getElementById('list').innerText = "Players: " + names.join(', ');
             if(names.length === 5) document.getElementById('startBtn').classList.remove('hidden');
         });
 
-        socket.on('assignRole', (data) => {
-            myRole = data.role;
+        socket.on('turnAnnouncement', (role) => {
             document.getElementById('lobby').classList.add('hidden');
-            document.getElementById('game').classList.remove('hidden');
-            document.getElementById('roleReveal').innerText = "Your Secret Role: " + myRole;
-            setupAction(data.role, data.allPlayers);
+            document.getElementById('night-overlay').classList.remove('hidden');
+            document.getElementById('night-msg').innerText = role + "s are waking up...";
         });
 
-        function setupAction(role, players) {
-            const area = document.getElementById('buttonArea');
-            const text = document.getElementById('actionText');
+        socket.on('yourTurnAction', (data) => {
+            document.getElementById('night-overlay').classList.add('hidden');
+            document.getElementById('action-screen').classList.remove('hidden');
+            document.getElementById('my-role-display').innerText = "Your Role: " + data.role;
+            const area = document.getElementById('interaction-area');
             area.innerHTML = "";
-
-            if (role === 'Seer') {
-                text.innerText = "Seer: Click one player to see their role.";
-                players.forEach((name, i) => {
-                    let b = document.createElement('button');
-                    b.innerText = name;
-                    b.className = "player-btn";
-                    b.onclick = () => { socket.emit('seerAction', i); b.disabled = true; };
+            
+            if(data.role === 'Seer') {
+                data.players.forEach((name, i) => {
+                    let b = document.createElement('button'); b.innerText = name; b.className="player-btn";
+                    b.onclick = () => { socket.emit('seerAction', i); b.disabled = true; document.getElementById('done-btn').classList.remove('hidden'); };
                     area.appendChild(b);
                 });
-            } else if (role === 'Gremlin') {
-                text.innerText = "Gremlin: Click TWO players to swap their roles.";
-                players.forEach((name, i) => {
-                    let b = document.createElement('button');
-                    b.innerText = name;
-                    b.className = "player-btn";
+            } else if (data.role === 'Gremlin') {
+                data.players.forEach((name, i) => {
+                    let b = document.createElement('button'); b.innerText = name; b.className="player-btn";
                     b.onclick = () => {
-                        selectedForSwap.push(i);
-                        b.disabled = true;
-                        if(selectedForSwap.length === 2) {
-                            socket.emit('gremlinAction', selectedForSwap);
-                            area.innerHTML = "Roles Swapped!";
-                        }
+                        if(!this.indices) this.indices = [];
+                        this.indices.push(i); b.disabled = true;
+                        if(this.indices.length === 2) { socket.emit('gremlinAction', this.indices); document.getElementById('done-btn').classList.remove('hidden'); }
                     };
                     area.appendChild(b);
                 });
-            } else {
-                text.innerText = "You have no night action. Wait for the morning.";
-            }
-            document.getElementById('doneBtn').classList.remove('hidden');
-        }
-
-        socket.on('seerResult', (msg) => alert(msg));
-        socket.on('gremlinResult', (msg) => alert(msg));
-
-        function finishTurn() {
-            socket.emit('playerFinished');
-            document.getElementById('doneBtn').classList.add('hidden');
-            document.getElementById('actionText').innerText = "Waiting for others...";
-            document.getElementById('buttonArea').innerHTML = "";
-        }
-
-        socket.on('morningPhase', (finalData) => {
-            document.getElementById('game').classList.add('hidden');
-            document.getElementById('morning').classList.remove('hidden');
-            const list = document.getElementById('finalRolesList');
-            list.innerHTML = finalData.map(p => `<p><strong>${p.name}:</strong> ${p.role}</p>`).join('');
+            } else { document.getElementById('done-btn').classList.remove('hidden'); }
         });
+
+        function done() {
+            socket.emit('nextTurn');
+            document.getElementById('action-screen').classList.add('hidden');
+            document.getElementById('night-overlay').classList.remove('hidden');
+        }
+
+        // --- PHASE TRANSITIONS ---
+
+        socket.on('startDiscussion', () => {
+            document.getElementById('night-overlay').classList.add('hidden');
+            document.getElementById('discussion-screen').classList.remove('hidden');
+            runTimer(180, 'timer', () => socket.emit('startVoting'));
+        });
+
+        socket.on('skipUpdate', (count) => { document.getElementById('skip-count').innerText = count; });
+
+        socket.on('startVoting', () => {
+            clearInterval(gameTimer);
+            document.getElementById('discussion-screen').classList.add('hidden');
+            document.getElementById('voting-screen').classList.remove('hidden');
+            
+            // Logic to build voting buttons
+            socket.emit('requestVoteList'); // Simplified: we just use the names
+            runTimer(20, 'v-timer', () => socket.emit('revealResult'));
+            
+            // Create buttons (Hardcoded for 5 players logic)
+            const area = document.getElementById('voting-area');
+            area.innerHTML = "";
+            // We use a small hack to get names from the lobby list
+            const names = document.getElementById('list').innerText.replace("Players: ", "").split(", ");
+            names.forEach(name => {
+                let b = document.createElement('button'); b.innerText = name; b.className="player-btn";
+                b.onclick = () => { socket.emit('submitVote', name); area.innerHTML = "<h3>Vote Logged!</h3>"; };
+                area.appendChild(b);
+            });
+        });
+
+        function runTimer(seconds, elementId, onEnd) {
+            clearInterval(gameTimer);
+            let timeLeft = seconds;
+            gameTimer = setInterval(() => {
+                let m = Math.floor(timeLeft / 60);
+                let s = timeLeft % 60;
+                document.getElementById(elementId).innerText = (m > 0 ? m + ":" + (s < 10 ? "0" : "") : "") + s;
+                if (--timeLeft < 0) { clearInterval(gameTimer); onEnd(); }
+            }, 1000);
+        }
+
+        socket.on('finalReveal', (data) => {
+            document.getElementById('voting-screen').classList.add('hidden');
+            document.getElementById('reveal-screen').classList.remove('hidden');
+            document.getElementById('outcome-banner').innerText = data.outcome;
+            document.getElementById('truth-list').innerHTML = data.truth.map(p => `<p>${p.name}: ${p.role}</p>`).join('');
+        });
+        
+        socket.on('seerResult', (res) => alert(res));
     </script>
 </body>
 </html>

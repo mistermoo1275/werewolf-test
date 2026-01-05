@@ -4,26 +4,30 @@
     <title>One Night Werewolf</title>
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: white; text-align: center; }
+        body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: white; text-align: center; margin: 0; }
         .hidden { display: none; }
-        .btn { background: #e94560; color: white; border: none; padding: 15px; margin: 10px; cursor: pointer; border-radius: 8px; font-weight: bold; }
-        .player-btn { background: #16213e; border: 1px solid #e94560; color: white; padding: 10px; margin: 5px; cursor: pointer; }
-        #timer { font-size: 3em; color: #ff4d4d; margin: 10px; }
-        .overlay { background: rgba(0,0,0,0.9); position: fixed; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index: 100; }
+        .btn { background: #e94560; color: white; border: none; padding: 15px 30px; margin: 10px; cursor: pointer; border-radius: 8px; font-weight: bold; font-size: 1.1em; }
+        .player-btn { background: #16213e; border: 1px solid #e94560; color: white; padding: 10px; margin: 5px; cursor: pointer; border-radius: 5px; }
+        #timer, #v-timer { font-size: 3.5em; color: #ff4d4d; font-weight: bold; margin: 10px; }
+        .overlay { background: rgba(0,0,0,0.95); position: fixed; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index: 100; }
+        #outcome-banner { font-size: 4em; text-shadow: 0 0 20px #fff; }
+        .truth-item { background: #0f3460; padding: 15px; margin: 5px; border-radius: 5px; display: inline-block; min-width: 150px; border: 1px solid #e94560; }
     </style>
 </head>
 <body>
     <div id="lobby">
-        <h1>🐺 Werewolf Lobby</h1>
-        <input id="nameInput" placeholder="Enter Name">
-        <button class="btn" onclick="join()">Join</button>
-        <div id="list"></div>
-        <button id="startBtn" class="btn hidden" onclick="socket.emit('startGame')">Start Game</button>
+        <h1>🐺 One Night Werewolf</h1>
+        <input id="nameInput" placeholder="Enter Your Name" style="padding: 12px; font-size: 1em; border-radius: 5px; border: none;">
+        <button class="btn" onclick="join()">Join Game</button>
+        <div id="list" style="margin-top: 30px; font-size: 1.2em;"></div>
+        <button id="startBtn" class="btn hidden" onclick="socket.emit('startGame')" style="background: #28a745;">Start Game (5 Players)</button>
     </div>
 
-    <div id="night-overlay" class="overlay hidden"><h1 id="night-msg">Night Phase...</h1></div>
+    <div id="night-overlay" class="overlay hidden">
+        <h1 id="night-msg">Night Phase...</h1>
+    </div>
 
-    <div id="action-screen" class="hidden">
+    <div id="action-screen" class="hidden" style="margin-top: 50px;">
         <h2 id="my-role-display"></h2>
         <div id="interaction-area"></div>
         <button id="done-btn" class="btn hidden" onclick="done()">Finish Action</button>
@@ -32,25 +36,27 @@
     <div id="discussion-screen" class="hidden">
         <h1>🗣️ DISCUSSION TIME</h1>
         <div id="timer">03:00</div>
-        <p>Talk to each other! Who is lying?</p>
-        <button class="btn" onclick="socket.emit('voteToSkip')">Vote to Skip to Voting (<span id="skip-count">0</span>/5)</button>
+        <p>Talk to your friends. Figure out who is lying!</p>
+        <button class="btn" onclick="socket.emit('voteToSkip')">Skip to Voting (<span id="skip-count">0</span>/5)</button>
     </div>
 
     <div id="voting-screen" class="hidden">
         <h1>🗳️ CAST YOUR VOTE</h1>
-        <div id="v-timer" style="font-size: 2.5em; color: yellow;">20</div>
+        <div id="v-timer" style="color: #f7d794;">20</div>
         <div id="voting-area"></div>
     </div>
 
     <div id="reveal-screen" class="overlay hidden">
         <h1 id="outcome-banner"></h1>
         <div id="truth-list"></div>
-        <button class="btn" onclick="location.reload()">Play New Game</button>
+        <br>
+        <button class="btn" onclick="socket.emit('resetGame')">Play New Game</button>
     </div>
 
     <script>
         const socket = io();
         let gameTimer;
+        let selectedIndices = [];
 
         function join() {
             const name = document.getElementById('nameInput').value;
@@ -58,7 +64,7 @@
         }
 
         socket.on('playerListUpdate', (names) => {
-            document.getElementById('list').innerText = "Players: " + names.join(', ');
+            document.getElementById('list').innerText = "In Lobby: " + names.join(', ');
             if(names.length === 5) document.getElementById('startBtn').classList.remove('hidden');
         });
 
@@ -71,13 +77,14 @@
         socket.on('yourTurnAction', (data) => {
             document.getElementById('night-overlay').classList.add('hidden');
             document.getElementById('action-screen').classList.remove('hidden');
-            document.getElementById('my-role-display').innerText = "Your Role: " + data.role;
+            document.getElementById('my-role-display').innerText = "SECRET ROLE: " + data.role;
             const area = document.getElementById('interaction-area');
             area.innerHTML = "";
+            selectedIndices = [];
             
             if(data.role === 'Seer') {
                 data.players.forEach((name, i) => {
-                    let b = document.createElement('button'); b.innerText = name; b.className="player-btn";
+                    let b = document.createElement('button'); b.innerText = "Check " + name; b.className="player-btn";
                     b.onclick = () => { socket.emit('seerAction', i); b.disabled = true; document.getElementById('done-btn').classList.remove('hidden'); };
                     area.appendChild(b);
                 });
@@ -85,9 +92,8 @@
                 data.players.forEach((name, i) => {
                     let b = document.createElement('button'); b.innerText = name; b.className="player-btn";
                     b.onclick = () => {
-                        if(!this.indices) this.indices = [];
-                        this.indices.push(i); b.disabled = true;
-                        if(this.indices.length === 2) { socket.emit('gremlinAction', this.indices); document.getElementById('done-btn').classList.remove('hidden'); }
+                        selectedIndices.push(i); b.disabled = true;
+                        if(selectedIndices.length === 2) { socket.emit('gremlinAction', selectedIndices); document.getElementById('done-btn').classList.remove('hidden'); area.innerHTML = "<h4>Roles Swapped!</h4>"; }
                     };
                     area.appendChild(b);
                 });
@@ -99,8 +105,6 @@
             document.getElementById('action-screen').classList.add('hidden');
             document.getElementById('night-overlay').classList.remove('hidden');
         }
-
-        // --- PHASE TRANSITIONS ---
 
         socket.on('startDiscussion', () => {
             document.getElementById('night-overlay').classList.add('hidden');
@@ -114,21 +118,15 @@
             clearInterval(gameTimer);
             document.getElementById('discussion-screen').classList.add('hidden');
             document.getElementById('voting-screen').classList.remove('hidden');
-            
-            // Logic to build voting buttons
-            socket.emit('requestVoteList'); // Simplified: we just use the names
-            runTimer(20, 'v-timer', () => socket.emit('revealResult'));
-            
-            // Create buttons (Hardcoded for 5 players logic)
             const area = document.getElementById('voting-area');
             area.innerHTML = "";
-            // We use a small hack to get names from the lobby list
-            const names = document.getElementById('list').innerText.replace("Players: ", "").split(", ");
+            const names = document.getElementById('list').innerText.replace("In Lobby: ", "").split(", ");
             names.forEach(name => {
-                let b = document.createElement('button'); b.innerText = name; b.className="player-btn";
+                let b = document.createElement('button'); b.innerText = "Eliminate " + name; b.className="player-btn";
                 b.onclick = () => { socket.emit('submitVote', name); area.innerHTML = "<h3>Vote Logged!</h3>"; };
                 area.appendChild(b);
             });
+            runTimer(20, 'v-timer', () => socket.emit('revealResult'));
         });
 
         function runTimer(seconds, elementId, onEnd) {
@@ -145,11 +143,16 @@
         socket.on('finalReveal', (data) => {
             document.getElementById('voting-screen').classList.add('hidden');
             document.getElementById('reveal-screen').classList.remove('hidden');
-            document.getElementById('outcome-banner').innerText = data.outcome;
-            document.getElementById('truth-list').innerHTML = data.truth.map(p => `<p>${p.name}: ${p.role}</p>`).join('');
+            const banner = document.getElementById('outcome-banner');
+            banner.innerText = data.outcome;
+            banner.style.color = data.outcome.includes("VILLAGERS") ? "#4dff88" : "#ff4d4d";
+            document.getElementById('truth-list').innerHTML = data.truth.map(p => `<div class="truth-item"><strong>${p.name}</strong><br>${p.role}</div>`).join('');
         });
-        
+
+        socket.on('gameReset', () => { location.reload(); });
         socket.on('seerResult', (res) => alert(res));
+        socket.on('waitTurn', (role) => { document.getElementById('night-msg').innerText = role + "s are waking up..."; });
     </script>
 </body>
 </html>
+

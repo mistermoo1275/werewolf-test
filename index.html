@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Multiplayer Werewolf</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { font-family: sans-serif; background: #1a1a2e; color: white; text-align: center; padding: 20px; }
+        .hidden { display: none; }
+        #list { margin: 20px; padding: 10px; border: 1px solid #444; }
+    </style>
+</head>
+<body>
+    <div id="lobby">
+        <h1>Werewolf Lobby</h1>
+        <input id="nameInput" placeholder="Name">
+        <button onclick="join()">Join</button>
+        <div id="list">No one joined yet...</div>
+        <button id="startBtn" class="hidden" onclick="start()">Start Game</button>
+    </div>
+    <div id="game" class="hidden">
+        <h2 id="roleReveal"></h2>
+    </div>
+
+    <script>
+        const socket = io();
+        function join() {
+            const name = document.getElementById('nameInput').value;
+            if(name) socket.emit('joinGame', name);
+        }
+        function start() { socket.emit('startGame'); }
+
+        socket.on('playerListUpdate', (names) => {
+            document.getElementById('list').innerText = "Players: " + names.join(', ');
+            if(names.length >= 2) document.getElementById('startBtn').classList.remove('hidden');
+        });
+
+        socket.on('assignRole', (role, allNames) => {
+            document.getElementById('lobby').classList.add('hidden');
+            document.getElementById('game').classList.remove('hidden');
+            document.getElementById('roleReveal').innerText = "Your Role: " + role;
+        });
+    </script>
+</body>
+</html>

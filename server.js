@@ -71,8 +71,12 @@ io.on('connection', (socket) => {
         let maxVotes = 0;
         let winners = [];
         for (let name in votes) {
-            if (votes[name] > maxVotes) { maxVotes = votes[name]; winners = [name]; }
-            else if (votes[name] === maxVotes) { winners.push(name); }
+            if (votes[name] > maxVotes) { 
+                maxVotes = votes[name]; 
+                winners = [name]; 
+            } else if (votes[name] === maxVotes) { 
+                winners.push(name); 
+            }
         }
 
         let werewolfCaught = false;
@@ -87,6 +91,13 @@ io.on('connection', (socket) => {
         });
     });
 
+    socket.on('resetGame', () => {
+        currentTurnIndex = 0;
+        votes = {};
+        skipVotes.clear();
+        io.emit('gameReset');
+    });
+
     socket.on('seerAction', (targetIdx) => {
         socket.emit('seerResult', `${players[targetIdx].name} is a ${players[targetIdx].role}`);
     });
@@ -97,7 +108,13 @@ io.on('connection', (socket) => {
         players[i1].role = players[i2].role;
         players[i2].role = temp;
     });
+
+    socket.on('disconnect', () => {
+        players = players.filter(p => p.id !== socket.id);
+        io.emit('playerListUpdate', players.map(p => p.name));
+    });
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
